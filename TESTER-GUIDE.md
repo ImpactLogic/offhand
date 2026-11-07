@@ -29,8 +29,8 @@ Type a note for it ("white, tape on back").
 - Anything confusing in the screens or messages? Anything that scared you?
 
 ## When something goes wrong
-Press **Save diagnostics**. It puts one zip on your desktop (version, Windows, drivers, pads, the log, settings: pad addresses and your
-notes, no passwords). Send me that file plus the feedback below.
+Use **Help > Ask Claude about a problem** to create a bundle for review. Offhand does not upload it. Inspect it before sharing because logs may still contain identifying details.
+**Save diagnostics** includes private settings, controller addresses, notes and character labels. Keep that ZIP local unless you have reviewed every file.
 
 Emergency: if your pads seem to have vanished after a crash, start Offhand once (it repairs itself) or run
 `"C:\Program Files\Nefarius Software Solutions\HidHide\x64\HidHideCLI.exe" --cloak-off`.

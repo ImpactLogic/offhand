@@ -13,6 +13,12 @@ restarting the game. Offhand fixes that.
 > **Early build, no promises.** This is a one-person project in testing. It can break, and nobody can promise it is safe to use
 > with the game (see "The honest risk" below). Please read that section before you use it.
 
+## Quick start
+
+On Windows 11 with Windower 4, unzip Offhand and install ViGEmBus and HidHide separately.
+Use two Xbox Wireless Controllers over Bluetooth. Run `Offhand.exe` and follow
+[the tester guide](TESTER-GUIDE.md) for first-run setup and [controller recovery](TESTER-GUIDE.md#when-something-goes-wrong).
+
 ## What it works with
 - Windows 11. Windows 10 has not been verified.
 - **Windower 4** (Ashita and other launchers are untested and not supported).
@@ -54,9 +60,8 @@ the game, but that is no guarantee either. **Use it at your own risk and decide 
 to automate play.
 
 ## Status
-Version 0.8.0 (reliability candidate). Tested with two Xbox Wireless Controllers and two clients: right pad per window, live swap, sleep and reconnect,
-and Steam seeing the pads again after Exit. It is a one-person project; expect rough edges and please send reports (include
-`launcher.log` from `%APPDATA%\ffxi-pad-launcher`; it contains pad addresses but no passwords).
+Version 0.12.0 (early beta candidate). Earlier builds were tested with two Xbox Wireless Controllers and two clients: right pad per window, live swap, sleep and reconnect,
+and Steam seeing the pads again after Exit. It is a one-person project; expect rough edges and please report issues with the Offhand version and steps to reproduce. Review diagnostic bundles before sharing them.
 
 ## Credits
 Built on ViGEmBus and HidHide by Nefarius, and the ViGEm client and Vortice libraries.

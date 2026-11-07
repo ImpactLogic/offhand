@@ -14,7 +14,7 @@ dotnet publish PadLauncher.csproj -c Release -r win-x86 --self-contained true `
     -o $stage
 if ($LASTEXITCODE -ne 0) { throw "publish failed" }
 Get-ChildItem $stage -Filter *.pdb | Remove-Item -Force
-Copy-Item PUBLIC-README.md (Join-Path $stage "README.md")
+Copy-Item README.md (Join-Path $stage "README.md")
 Copy-Item INSTALL.txt $stage
 Copy-Item TESTER-GUIDE.md $stage
 Copy-Item THIRD-PARTY-NOTICES.md $stage
