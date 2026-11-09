@@ -2,6 +2,7 @@
   <!-- Offhand (called Pad Launcher until 0.7.0): one controller per game client (IDEAS #38). -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <ApplicationIcon>offhand.ico</ApplicationIcon>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>

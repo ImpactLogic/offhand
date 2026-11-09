@@ -1,5 +1,7 @@
 # Offhand
 
+<img src="brand.svg" alt="Offhand logo" width="64">
+
 *A controller per game window. Works with FFXI (Windower 4). Free, MIT licence.*
 
 **Free and non-commercial: no ads, no donations, no paid tier, nothing is sold.**
