@@ -1,17 +1,24 @@
 Offhand: install
 ===================
 
-1. Unzip anywhere (for example C:\Tools\Offhand). No .NET install is needed: it is bundled.
+1. Run Offhand-<version>-Setup.exe for desktop/Start shortcuts and Windows uninstall support.
+   Alternatively unzip the portable ZIP anywhere. No .NET install is needed: it is bundled.
+   Before upgrades, close game/POL windows and Exit Offhand from its tray icon.
+   After installation, reopen Offhand using the refreshed desktop shortcut.
 2. Run Offhand.exe. Windows asks for administrator rights: FFXI keeps its controller setting in
    HKEY_LOCAL_MACHINE (the FFXI Config tool asks for the same reason).
-3. First run: set the Windower path if yours is not C:\Program Files (x86)\Windower4, add one row per
-   character (label, Windower profile, controller) and press Save.
+3. First run: follow the four-step setup wizard. Choose Windower.exe, check controllers and drivers,
+   add up to two characters with their Windower profiles and separate controllers, then review and Save setup.
+   Cancel does not save changes. Nothing launches automatically.
+4. Use Characters to edit launch order and assignments; Controllers to identify/name pads;
+   Activity for the log; Help for the session routine. Launch/Stop/Swap stay below every section.
 
 Optional virtual pads (swap controllers between clients without restarting them)
 -------------------------------------------------------------------------------
-Needs the ViGEmBus driver, a one-time install:
+Needs both ViGEmBus and HidHide, installed once:
   https://github.com/nefarius/ViGEmBus/releases   (ViGEmBus_1.22.0_x64_x86_arm64.exe)
-Reboot if the installer asks. Then tick "Forward through virtual pads" in the launcher.
+  https://github.com/nefarius/HidHide/releases
+Reboot if an installer asks. Then tick "Give each window its own virtual pad" in Offhand.
 The project is retired by its author but still works on Windows 10 and 11.
 Without the driver the launcher still works the plain way (it sets which controller FFXI uses per client).
 
@@ -19,8 +26,12 @@ What it does and does not do
 ----------------------------
 - It reads your controllers and starts Windower profiles in order; with virtual pads it copies each real
   controller to a virtual Xbox 360 pad that one game client uses.
-- It never reads or writes game memory, never sends keystrokes, never stores passwords.
+- Optional PlayOnline sign-in sends input through a taught path and stores saved passwords
+  locally in Windows Credential Manager. See SIGN-IN.md. It does not read or write game memory.
 - It is still a controller layer in front of the game. Check the Square Enix terms of service yourself.
 
-Uninstall: close Offhand (tray icon > Exit), delete the folder, and delete
-%APPDATA%\ffxi-pad-launcher to forget your settings. ViGEmBus uninstalls from Windows "Apps".
+Uninstall: close game/POL windows and Exit Offhand from its tray icon, then use Windows
+Installed apps > Offhand > Uninstall. For a portable copy, delete its extracted folder.
+Settings in %APPDATA%\ffxi-pad-launcher and saved credentials are retained. To forget a saved
+password, use Offhand's Forget action before uninstalling. Drivers are managed separately
+in Windows Installed apps. Installing the packaged version does not remove a portable copy.

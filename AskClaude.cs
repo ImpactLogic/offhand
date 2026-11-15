@@ -1,5 +1,4 @@
-﻿using System.IO.Compression;
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 
 namespace PadLauncher;
@@ -33,48 +32,23 @@ public static class AskClaude
 
     /// What the bundle holds, shown before and after saving.
     public const string Contents =
-        "info.txt (version, Windows, drivers, pads), launcher.log (last 3000 lines), settings.txt (counts and yes/no only) and PROMPT.txt.\n" +
-        "Removed: character names, pad names and notes, pad addresses, device paths, IP addresses, your Windows user name. No passwords are stored by Offhand.";
+        "The bundle includes version and driver status, basic settings, up to 3000 recent log lines and PROMPT.txt.\n" +
+        "It excludes saved passwords, sign-in recordings and the configuration file. Known identifiers are redacted. Review the log before sharing.";
 
     public static string Build(Config cfg, string? folder = null)
     {
         folder ??= Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        var work = Path.Combine(Path.GetTempPath(), "offhand-claude-" + stamp);
-        Directory.CreateDirectory(work);
-        try
-        {
-            var names = Names(cfg).ToList();
-            var plain = Diagnostics.Save(cfg, work);          // the normal bundle, unpacked below and redacted
-            var ex = Path.Combine(work, "x");
-            ZipFile.ExtractToDirectory(plain, ex);
-            var pads = cfg.PadNotes.Values;
-            foreach (var f in new[] { "info.txt", "launcher.log" })
-            {
-                var p = Path.Combine(ex, f);
-                if (!File.Exists(p)) continue;
-                var t = Redact(File.ReadAllText(p), names.Concat(pads));
-                File.WriteAllText(Path.Combine(work, f), t);
-            }
-            File.WriteAllText(Path.Combine(work, "settings.txt"), Redact(SettingsSummary(cfg)));
-            File.WriteAllText(Path.Combine(work, "PROMPT.txt"), Prompt);
-            File.Delete(plain); Directory.Delete(ex, true);
-            var zip = Path.Combine(folder, $"Offhand-for-Claude-{stamp}.zip");
-            ZipFile.CreateFromDirectory(work, zip);
-            return zip;
-        }
-        finally { try { Directory.Delete(work, true); } catch { } }
+        var report = new Dictionary<string, string>(Diagnostics.Preview(cfg)) { ["PROMPT.txt"] = Prompt };
+        var zip = Path.Combine(folder, $"Offhand-for-Claude-{stamp}.zip");
+        Diagnostics.SaveReport(zip, report);
+        return zip;
     }
 
     public const string Prompt =
         "I use Offhand, a Windows tool that gives each FFXI window its own controller. Something went wrong (describe it here: ______).\n" +
         "The attached zip is its redacted diagnostics: info.txt, launcher.log, settings.txt. Please read the end of launcher.log first, tell me what most likely\n" +
         "happened and what to try, and say what you are unsure about.";
-
-    static string SettingsSummary(Config cfg) =>
-        $"Characters: {cfg.Rows.Count}\nForwarding virtual pads: {cfg.UseVirtual}\nHide real pads: {cfg.HidePads}\nMark client windows: {cfg.MarkClients}\n" +
-        $"Pause after client: {cfg.PauseAfterClientSeconds}s\nQuality profiles on: {cfg.QualityRolesOn}\nVerbose input log: {cfg.VerboseInput}\n" +
-        $"Pad notes: {cfg.PadNotes.Count}\nWindower args: {cfg.WindowerArgs.Replace(cfg.WindowerExe, "<windower>")}\nWindower.exe present: {File.Exists(cfg.WindowerExe)}\n";
 
     /// claude-state.json beside the log, for a Claude session on this PC to read. Off unless the user ticks Tools > Write status file for Claude.
     public static string StatusPath => Path.Combine(Path.GetDirectoryName(Config.LogPath) ?? "", "claude-state.json");

@@ -1,8 +1,8 @@
-﻿namespace PadLauncher;
+namespace PadLauncher;
 
 public partial class MainForm : Form
 {
-    readonly bool firstRun = !File.Exists(Config.FilePath);  // before Load: no config.json yet means a new user
+    readonly bool firstRun;  // before Load: no config.json yet means a new user
     readonly Config cfg = Config.Load();
     List<Pad> pads = new();
     // Connected controllers. Only the Notes column is editable: the user's own words for the physical pad.
@@ -65,9 +65,11 @@ public partial class MainForm : Form
 
     public MainForm()
     {
+        firstRun = !File.Exists(Config.FilePath) || cfg.SetupCompleted == false;
+        if (firstRun) cfg.SetupCompleted = false;
         Text = "Offhand " + Diagnostics.Version;
         Icon = AppIcon.Make();
-        Width = 900; Height = 720;
+        Width = 1100; Height = 760; MinimumSize = new Size(900, 640);
 
         padList.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Controller", ReadOnly = true, FillWeight = 28 });
         padList.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Notes (what it looks like; click to edit)", FillWeight = 34 });
@@ -162,7 +164,8 @@ public partial class MainForm : Form
         };
         Pads.Log = Log;
         watch.Start();
-        Watchdog.Start(() => (fwd == null ? "forwarding off" : $"forwarding {fwd.Stats.Ticks} passes, longest {fwd.Stats.MaxMs:F1} ms") + "; " + ClientMemory());
+        Watchdog.Start(() => (fwd == null ? "forwarding off" : fwd.DiagnosticStatus) + "; " + ClientMemory(),
+            () => fwd?.ControllerSnapshot() ?? "forwarding off");
         WatchPads();
         RecoverHidden();
         if (Config.RecoveryNotice != null) Shown += (_, _) => Explain(Config.RecoveryNotice);
@@ -371,13 +374,24 @@ public partial class MainForm : Form
     {
         if (SessionActive) { Explain("Finish this session before changing setup. Live controller swaps are still available."); return; }
         using var f = new SetupForm(cfg);
-        f.ShowDialog(this);
+        if (f.ShowDialog(this) != DialogResult.OK) return;
         profiles = cfg.ProfileSummaries();  // the Windower path may have changed
         var col = (DataGridViewComboBoxColumn)grid.Columns[1];
         col.Items.Clear();
         col.Items.AddRange(profiles.Keys.Cast<object>().ToArray());
+        savingRows = true;
+        try
+        {
+            grid.Rows.Clear();
+            RefreshPads();
+            foreach (var row in cfg.Rows)
+                grid.Rows.Add(row.Label, col.Items.Contains(row.Profile) ? row.Profile : null!, PadLabel(row.PadAddress)!);
+            foreach (DataGridViewRow row in grid.Rows) ShowProfileInfo(row);
+        }
+        finally { savingRows = false; }
         FillQualityProfiles();
-        RefreshPads();
+        UpdateGuide();
+        NavigateTo("Characters");
     }
 
     void ShowWindow() { Show(); WindowState = FormWindowState.Normal; Activate(); }
@@ -744,10 +758,36 @@ public partial class MainForm : Form
         RefreshPads();
     }
 
+    // Shared by the button, menu and launch action. No driver CLI calls on the UI timer.
+    string? LaunchBlockReason()
+    {
+        if (running != null) return "Launch in progress. Finish logging in on the waiting window.";
+        if (SessionActive) return "Session open. Close game and PlayOnline windows before launching another session.";
+        if (!File.Exists(cfg.WindowerExe)) return "Choose Windower.exe in Tools > Setup.";
+        if (cfg.Rows.Count == 0) return "Add a character before launching.";
+        if (cfg.Rows.Any(r => cfg.ProfileFor(r).Length == 0)) return "Choose a Windower profile for every character.";
+        var error = SessionChecks.Validate(cfg.Rows.Select(r => r.PadAddress).ToArray());
+        if (error != null) return error;
+        if (cfg.Rows.Any(r => !pads.Any(p => p.Address.Equals(r.PadAddress, StringComparison.OrdinalIgnoreCase))))
+            return "Turn on each assigned controller before launching.";
+        if (cfg.UseVirtual && fwd == null) return "Virtual pads are not ready. Check Tools > Setup.";
+        if (fwd != null)
+        {
+            if (fwd.Count < cfg.Rows.Count || Enumerable.Range(0, fwd.Count).Any(i => !SessionChecks.ValidSlot(fwd.XInputSlot(i), i) || fwd.VirtualGuid(i) == Guid.Empty)
+                || (fwd.Count > 1 && fwd.VirtualGuid(0) == fwd.VirtualGuid(1)))
+                return "Virtual pad slots are not ready. Close clients, turn pads off and restart Offhand.";
+            if (!cfg.HidePads || !HidHide.Installed || !hideReady || cfg.Rows.Any(r => !fwd.RawKnows(r.PadAddress)))
+                return "Controllers are reconnecting or not hidden yet. Press a button on each and wait for Ready.";
+        }
+        return null;
+    }
+
     async Task LaunchAll()
     {
         if (SessionActive) { Explain("A session is already open. Close its game and PlayOnline windows before launching another session."); return; }
         SaveRows();
+        var block = LaunchBlockReason();
+        if (block != null) { UpdateGuide(); Explain(block); return; }
         if (cfg.Rows.Count == 0) { Log("Add at least one row."); return; }
         if (cfg.Rows.Any(r => cfg.ProfileFor(r).Length == 0 || r.PadAddress.Length == 0)) { Log("Every row needs a Windower profile and a controller."); return; }
         var setupError = SessionChecks.Validate(cfg.Rows.Select(r => r.PadAddress).ToArray());
@@ -762,7 +802,7 @@ public partial class MainForm : Form
         }
         cts = new CancellationTokenSource();
         running = new Launcher(cfg, Log, fwd == null ? null : i => i < fwd.Count ? fwd.VirtualGuid(i) : null);
-        launchBtn.Enabled = false; cancelBtn.Enabled = true;
+        launchBtn.Enabled = false; cancelBtn.Enabled = true; UpdateGuide();
         try { await running.RunAsync(cts.Token); foreach (var (k, v) in running.ClientPids) clientPids[k] = v; }
         finally { cancelBtn.Enabled = false; running = null; cts.Dispose(); cts = null; RefreshPads(); UpdateGuide(); }
     }

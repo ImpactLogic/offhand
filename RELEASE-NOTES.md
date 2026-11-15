@@ -1,4 +1,50 @@
-﻿# Offhand release notes
+# 0.14.4 preview
+
+- Adds a conventional Windows installer alongside the portable ZIP, desktop/Start shortcuts, upgrade support and Windows uninstall registration. Personal settings and credentials are preserved.
+- Optional external signing integration covers the app, setup and uninstaller. Unsigned builds remain review builds.
+
+# 0.14.3 preview
+
+- Saved sign-in paths survive controller and mode changes in the PlayOnline window title. Visual and window size checks still apply.
+
+# 0.14.2 preview
+
+- Records controller discovery, first Raw Input report, removal and reconnect count during normal play. The watchdog samples Windows device presence and XInput slots after these transitions.
+
+# 0.14.1 preview
+
+- Sign-in shows the last completed step and offers Continue in PlayOnline after the attempt. Connect dispatch is reported separately from the sign-in result.
+- Save diagnostics previews the exact redacted report before writing a ZIP. The report excludes saved passwords, sign-in recordings and the raw configuration.
+
+# 0.14.0
+
+- Optional PlayOnline sign-in is part of the standard build. Each character can teach its own path and store its password locally in Windows Credential Manager.
+- The watchdog samples Windows device presence, Raw Input report age, and XInput slots when controller operations stall.
+
+# 0.13.4 (2026-11-01)
+
+Adds bounded diagnostics for the live controller-reconnect hang: native DirectInput phases, source fallback reasons, device identity and errors, pending routing-lock access, and slow enumeration. Independent watchdog snapshots report waits after two seconds (observed on its five-second timer), repeat at most once per minute, and report observed recovery. Lifecycle/error notes are capped per device/event at once per 30 seconds. No per-report input logging. Status collection runs as one background job; a blocked job no longer blocks the watchdog or starts overlapping collectors. Forwarding statistics used by the watchdog come from a cached snapshot. This release instruments the native Acquire stall; it does not resolve or cancel that native call.
+
+# 0.13.3 (2026-10-31)
+
+The step strip distinguishes Logging in from Playing; a running POL process alone no longer counts as being in game.
+
+# 0.13.2 (2026-10-31)
+
+Includes the 0.13.1 launch-readiness UX: Launch is neutral and disabled until the session is ready, and the status explains what needs attention.
+
+# 0.13.1 (2026-10-31)
+
+Launch stays neutral and disabled until the configured characters, controllers and virtual-pad state are ready. The button and launch action share readiness checks; the status line explains what needs attention. File > Launch follows the same enabled state. Private login remains planned, with no credential storage or login actions shipped.
+
+# Offhand release notes
+
+## 0.13.0 (2026-10-31) - Sidebar and first-run wizard
+- Persistent Characters, Controllers, Activity and Help sections; Launch, Stop launching and Swap remain reachable from every section. Menus and keyboard shortcuts remain available.
+- Four-step setup: Windower path, controller/driver checks, character assignments, and review. Back preserves edits; Cancel leaves settings unchanged; Save commits the draft without launching anything.
+- Reject missing/wrong Windower files, incomplete assignments, duplicate names/controllers and unavailable profiles. Saved offline controllers remain assignable.
+- Incomplete first-run setup resumes next time. Existing configurations do not require the wizard.
+- Offline UI integration checks and the existing forwarding/config checks pass. The newest build still needs a live controller/session check.
 
 ## 0.12.0 (2026-10-30) - Ask Claude
 - **Help > Ask Claude about a problem** (Ctrl+Shift+H) saves a redacted diagnostics zip on your desktop, copies a prompt to the clipboard and opens the folder. You paste both into a Claude chat. Offhand sends nothing anywhere and needs no key. Removed: character names, pad names and notes, pad addresses, device paths, IP addresses, your Windows user name.

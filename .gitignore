@@ -1,3 +1,9 @@
 bin/
 obj/
 dist/
+
+# Personal settings and diagnostics
+config.json
+config.json.*
+*.log
+data/

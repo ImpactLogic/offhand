@@ -24,6 +24,26 @@ public partial class MainForm
     Panel padsPanel = null!;   // the controller list: shown while pads need attention, or on demand (Controllers button)
     bool padsToggle;
 
+    readonly Button privateSignIn = new() { Text = "PlayOnline sign-in", AutoSize = true };
+    readonly Button privateTeach = new() { Text = "Teach path…", AutoSize = true };
+    readonly Button privatePassword = new() { Text = "Save password…", AutoSize = true };
+    readonly Label privateSignInStatus = new() { AutoSize = true, Margin = new Padding(8, 8, 0, 0) };
+
+    int[] PrivateTrackedPids() =>
+        (running?.ClientPids.Values.SelectMany(ids => ids) ?? Enumerable.Empty<int>())
+        .Concat(clientPids.Values.SelectMany(ids => ids)).Distinct().ToArray();
+
+    void UpdatePrivateSignIn()
+    {
+        var title = PrivatePolInputForm.WaitingTitle(PrivateTrackedPids());
+        var block = title == null ? "Waiting for a PlayOnline window." : PrivatePolInputForm.PathBlockReason(title);
+        privateSignIn.Enabled = block == null;
+        privateTeach.Enabled = title != null && PrivatePolInputForm.Supported(title);
+        privateSignIn.Text = title != null && PrivatePolInputForm.Supported(title)
+            ? "Sign in " + title.Split(" | ", 2, StringSplitOptions.None)[0] : "PlayOnline sign-in";
+        privateSignInStatus.Text = block ?? "Path ready. Start at Member List.";
+    }
+
     void BuildGuidedLayout(Button refresh, Button up, Button down, Button save, Button setBtn, Button setupBtn, Button diagBtn, Button aboutBtn)
     {
         // plain words on the controls that stay in view
@@ -45,7 +65,7 @@ public partial class MainForm
         tips.SetToolTip(save, "Save now. Finished character edits also save automatically.");
         tips.SetToolTip(setBtn, "Simple mode only: tell FFXI which controller to use for the NEXT client you start by hand.");
         tips.SetToolTip(setupBtn, "Where Windower is, which drivers are installed, and the routine for every session.");
-        tips.SetToolTip(diagBtn, "Puts one zip on your desktop to send with a bug report: version, drivers, pads, the log, your settings. No passwords.");
+        tips.SetToolTip(diagBtn, "Preview and save version, driver status, basic settings and recent logs for a bug report.");
         tips.SetToolTip(aboutBtn, "Version, credits, and the honest note about the game's rules.");
 
         // ----- three-step strip
@@ -61,6 +81,25 @@ public partial class MainForm
         // ----- primary action bar: only what a normal session needs
         var primary = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Padding = new Padding(0, 4, 0, 0) };
         primary.Controls.AddRange(new Control[] { launchBtn, cancelBtn, swapBtn, qualityLine, mainBtn, fwdBox, slotStatus });
+        primary.Controls.Add(privateSignIn);
+        primary.Controls.Add(privateTeach);
+        primary.Controls.Add(privatePassword);
+        primary.Controls.Add(privateSignInStatus);
+        privateTeach.Click += (_, _) =>
+        {
+            using var dialog = new PrivatePolInputForm(PrivateTrackedPids, Log);
+            dialog.ShowDialog(this);
+            UpdatePrivateSignIn();
+        };
+        privatePassword.Click += (_, _) => ShowPrivateLoginSettings();
+        privateSignIn.Click += (_, _) =>
+        {
+            UpdatePrivateSignIn();
+            if (!privateSignIn.Enabled) return;
+            using var dialog = new PrivatePolInputForm(PrivateTrackedPids, Log, startSignIn: true);
+            dialog.ShowDialog(this);
+            UpdatePrivateSignIn();
+        };
         fwdBox.Text = "Give each window its own virtual pad (recommended)";
         fwdBox.Margin = new Padding(14, 8, 0, 0);
 
@@ -118,21 +157,7 @@ public partial class MainForm
         padsPanel.Controls.Add(padList);  // Fill first, then the heading
         padsPanel.Controls.Add(pc);
         pc.Dock = DockStyle.Top;
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 10, Padding = new Padding(10, 8, 10, 6) };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // strip
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // help
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // controller list (collapsible)
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // characters label
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));      // character list
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // primary
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // status
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // toggles
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // more panel
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));          // details
-        var rowsInOrder = new Control[] { strip, helpLine, padsPanel, cc, charPanel, primary, statusLine, toggles, morePanel, detailsPanel };
-        for (int i = 0; i < rowsInOrder.Length; i++) root.Controls.Add(rowsInOrder[i], 0, i);
-        Controls.Add(root);
-        root.SizeChanged += (_, _) => { var w = Math.Max(300, root.ClientSize.Width - 30); helpLine.MaximumSize = new Size(w, 0); statusLine.MaximumSize = new Size(w, 0); };
+        BuildSidebarLayout(strip, cc, charPanel, primary);
 
         slotStatus.MaximumSize = new Size(800, 0);
         ApplyAdvanced();
@@ -175,6 +200,7 @@ public partial class MainForm
     {
         if (cfg.FullProfile.Length == 0 || cfg.LiteProfile.Length == 0)
         {
+            NavigateTo("Characters");
             morePanel.Visible = true;
             Explain("Pick a Full-quality profile and a Lite profile under Characters > Quality profiles first. Make the Lite one in Windower (smaller window, lower graphics); Offhand only chooses between profiles.");
             return;
@@ -222,7 +248,8 @@ public partial class MainForm
             b.ForeColor = Color.White; b.BackColor = b.Enabled ? on : off;
             b.FlatAppearance.BorderSize = 0;
         }
-        Style(launchBtn, Color.FromArgb(30, 150, 70), Color.FromArgb(150, 175, 155));
+        Style(launchBtn, Color.FromArgb(30, 150, 70), Color.FromArgb(220, 220, 220));
+        if (!launchBtn.Enabled) launchBtn.ForeColor = SystemColors.GrayText;
         Style(cancelBtn, Color.FromArgb(198, 40, 40), Color.FromArgb(185, 150, 150));
     }
 
@@ -244,20 +271,23 @@ public partial class MainForm
         var present = pads.Select(p => p.Address).ToHashSet();
         bool padsDone = pads.Count > 0 && configured.All(present.Contains);
         bool charsDone = rows.Count > 0;
-        bool playing = clientPids.Values.Any(ids => ids.Any(IsAlive));
+        bool playing = clientPids.Values.Any(ids => ids.Any(IsPlaying));
         bool launching = running != null;
-        padsPanel.Visible = padsToggle || !padsDone;
+        padsPanel.Visible = true; // Controllers has its own page; never hide its content on a timer.
         UpdateQuality();
         grid.Enabled = !SessionActive;
         if (characterActions != null) characterActions.Enabled = !SessionActive;
-        launchBtn.Enabled = !SessionActive;
+        var launchBlock = LaunchBlockReason();
+        launchBtn.Enabled = launchBlock == null;
+        tips.SetToolTip(launchBtn, launchBlock ?? "Launch your configured characters in order.");
         launchBtn.Text = cfg.Rows.Count == 0 ? "\u25B6  Launch (add a character first)" : "\u25B6  Launch " + (cfg.Rows.Count == 1 ? "1 character" : cfg.Rows.Count + " characters");
         StyleGoStop();
+        UpdatePrivateSignIn();
         fwdBox.Enabled = !SessionActive;
 
         stepLabels[0].Text = pads.Count == 0 ? "1  Pads: none on yet" : $"1  Pads: {pads.Count} connected";
         stepLabels[1].Text = charsDone ? $"2  Characters: {rows.Count} set up" : "2  Characters: none yet";
-        stepLabels[2].Text = playing ? "3  Playing" : "3  Play";
+        stepLabels[2].Text = playing ? "3  Playing" : launching ? "3  Logging in" : "3  Play";
         int current = !padsDone ? 0 : !charsDone ? 1 : 2;
         bool[] done = { padsDone, charsDone, playing };
         for (int i = 0; i < 3; i++)
@@ -267,7 +297,7 @@ public partial class MainForm
             stepLabels[i].Text = (done[i] ? "\u2713 " : "") + stepLabels[i].Text;
         }
 
-        helpLine.Text = launching ? "Log in on the window that just opened. We will open the next character once FFXI loads." : playing
+        helpLine.Text = !launching && !SessionActive && launchBlock != null ? launchBlock : launching ? "Log in on the window that just opened. We will open the next character once FFXI loads." : playing
             ? "You're playing. Swap the pads any time with Swap pads. Quit the window you launched LAST first, and use Exit in the tray icon when you're done (that gives your pads back to Steam)."
             : current == 0
                 ? "Turn your pads on (hold the Xbox button), then press a button on one: its row lights up. Name each pad so you can tell them apart."
@@ -278,7 +308,8 @@ public partial class MainForm
                         : "Ready. Press Launch all. For pad swapping and pads that survive sleep, also tick \"Give each window its own virtual pad\".";
 
         cancelBtn.Visible = launching;
-        statusLine.Text = PlainStatus(configured, present, launching);
+        statusLine.Text = launching ? running?.Status ?? "Preparing your characters..."
+            : launchBlock ?? PlainStatus(configured, present, launching);
         statusLine.ForeColor = statusLine.Text.StartsWith("Heads up") || statusLine.Text.Contains("turn it on") || statusLine.Text.StartsWith("Windower") ? Color.Firebrick : Color.FromArgb(30, 110, 50);
     }
 
@@ -297,9 +328,9 @@ public partial class MainForm
              : "Controllers are not ready yet. Check Setup and wait for both pads to be connected and hidden.";
     }
 
-    static bool IsAlive(int pid)
+    static bool IsPlaying(int pid)
     {
-        try { using var p = System.Diagnostics.Process.GetProcessById(pid); return !p.HasExited; } catch { return false; }
+        try { using var p = System.Diagnostics.Process.GetProcessById(pid); return !p.HasExited && Launcher.IsGameLoaded(p) == true; } catch { return false; }
     }
 
     /// Before the virtual pads are created the real pads should be off (they take the first XInput slots otherwise).

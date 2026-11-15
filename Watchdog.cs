@@ -11,6 +11,24 @@ public static class Watchdog
     static int checks;
     static System.Threading.Timer? timer;
     static long nextMarkMb = 300;
+    static int observing;
+    static int controllerEvent;
+
+    public static void ControllerEvent(string detail)
+    {
+        Interlocked.Exchange(ref controllerEvent, 1);
+        Write("CONTROLLER TIMELINE " + detail);
+    }
+    static readonly OperationMonitor operations = new();
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> lastNotes = new();
+    public static OperationTrace Track(string name) => operations.Track(name);
+    public static void Note(string key, string text)
+    {
+        long now = Environment.TickCount64;
+        if (lastNotes.TryGetValue(key, out var previous) && now - previous < 30_000) return;
+        lastNotes[key] = now;
+        Write("DIAG " + text);
+    }
 
     /// Offhand's own size, for the ALIVE line: a 22-hour run died of an unhandled error on 10/15 with no record of its memory (IDEAS #217).
     /// This is a 32-bit process, so private bytes near 2 GB (or a handle count that only ever grows) is the thing to watch.
@@ -43,24 +61,42 @@ public static class Watchdog
         if (reported) { reported = false; Write($"WATCHDOG window thread recovered after {lag:F0} s"); }
     }
 
-    public static void Start(Func<string> status)
+    public static void Start(Func<string> status, Func<string> controllerEvidence)
     {
+        var sampler = new DiagnosticStatusSampler(status);
+        sampler.TryRefresh();
+        var evidence = new DiagnosticStatusSampler(controllerEvidence);
         timer = new System.Threading.Timer(_ =>
         {
+            if (Interlocked.CompareExchange(ref observing, 1, 0) != 0) return;
             try
             {
+                operations.Observe(Environment.TickCount64, line =>
+                {
+                    Write(line);
+                    if (line.StartsWith("DIAG pending:", StringComparison.Ordinal) &&
+                        (line.Contains("physical-input", StringComparison.Ordinal) ||
+                         line.Contains("controller-refresh", StringComparison.Ordinal)))
+                        evidence.TryRefresh(collect => Write("CONTROLLER EVIDENCE " + collect));
+                });
                 var lag = (Environment.TickCount64 - Interlocked.Read(ref lastBeat)) / 1000.0;
                 if (lag > 10 && !reported) { reported = true; Write($"WATCHDOG window thread stuck for {lag:F0} s in: {step}"); }
                 else if (lag > 10 && lag % 60 < 5) Write($"WATCHDOG window thread still stuck, {lag:F0} s in: {step}");
+                if (Interlocked.Exchange(ref controllerEvent, 0) != 0 &&
+                    !evidence.TryRefresh(collect => Write("CONTROLLER EVIDENCE after transition: " + collect)))
+                    Interlocked.Exchange(ref controllerEvent, 1);
                 if (++checks % 12 == 0)  // once a minute: log each 100 MB step of growth, so a leak shows its slope
                 {
+                    sampler.TryRefresh();
+                    evidence.TryRefresh();
                     using var me = System.Diagnostics.Process.GetCurrentProcess();
                     long mb = me.PrivateMemorySize64 / 1048576;
                     if (mb >= nextMarkMb) { Write($"MEMORY crossed {nextMarkMb} MB; {Self()}"); nextMarkMb = (mb / 100 + 1) * 100; }
                 }
-                if (checks % 120 == 0) Write($"ALIVE window lag {lag:F0} s; {status()}; {Self()}");
+                if (checks % 120 == 0) Write($"ALIVE window lag {lag:F0} s; {sampler.Snapshot(Environment.TickCount64)}; controllers: {evidence.Snapshot(Environment.TickCount64)}; {Self()}");
             }
             catch { }
+            finally { Volatile.Write(ref observing, 0); }
         }, null, 5000, 5000);
     }
 

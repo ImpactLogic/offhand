@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Xml.Linq;
 
 namespace PadLauncher;
@@ -12,6 +12,7 @@ public class Row
 
 public class Config
 {
+    public bool? SetupCompleted { get; set; } // null preserves pre-wizard installs; false resumes canceled first-run setup.
     public string WindowerExe { get; set; } = @"C:\Program Files (x86)\Windower4\Windower.exe";
     // {profile} is replaced. User confirmed 2026-09-21: -p "<profile>" starts that profile directly.
     public string WindowerArgs { get; set; } = "-p \"{profile}\"";

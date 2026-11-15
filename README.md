@@ -13,6 +13,24 @@ restarting the game. Offhand fixes that.
 > **Early build, no promises.** This is a one-person project in testing. It can break, and nobody can promise it is safe to use
 > with the game (see "The honest risk" below). Please read that section before you use it.
 
+## Screenshots and demo
+
+![Offhand ready with two characters and two controllers](media/offhand-ready.png)
+
+[Watch or download the masked launch demo](media/offhand-demo-masked.mp4) (silent, about 2 minutes 22 seconds).
+
+<details>
+<summary>Character setup and optional PlayOnline sign-in</summary>
+
+![Character setup](media/offhand-characters.png)
+
+![Offhand beside PlayOnline with account identifiers masked](media/offhand-sign-in-masked.png)
+
+</details>
+
+Footage shows version 0.14.3. Character names are intentionally visible; account identifiers and
+password fields are covered in the demo. See [media notes](media/README.md).
+
 ## What it works with
 - Windows 11. Windows 10 has not been verified.
 - **Windower 4** (Ashita and other launchers are untested and not supported).
@@ -34,9 +52,14 @@ restarting the game. Offhand fixes that.
   The Setup screen shows what is missing and links to the download pages.
 - Xbox Wireless Controllers (Bluetooth). Other controller families and USB input need further testing.
 
+## First run and navigation
+The setup wizard walks you through Windower, controller/driver checks, your character list, and a review before saving. Cancel leaves your settings unchanged. An unfinished first-run setup opens again next time. Existing setups stay available without repeating the wizard.
+
+Use the sidebar to open **Characters**, **Controllers**, **Activity** (the log), or **Help**. Name your pads on Controllers and assign them on Characters. Launch, Stop launching, and Swap pads stay available below every section. The menu bar keeps the existing keyboard shortcuts and advanced tools. Setup can be reopened from the sidebar or Tools menu while no game session is active.
+
 ## Every play session
-1. Turn your pads **off**, start Offhand, then turn them **on**. (The virtual pads have to exist first.)
-2. Wait for Ready, press **Launch all**, and log in on each window. Each controller assignment stays held without a login deadline. (The launcher asks you to turn the pads off first if they are on.)
+1. Open Offhand and turn on every assigned controller. Wait for the ready status before launching.
+2. Press **Launch** and log in on each window, manually or using your taught sign-in path. Each controller assignment stays held without a login deadline.
 3. To stop an unfinished launch, close its waiting PlayOnline window, then press **Stop launching**.
 4. Quit the last-launched client first. Exit Offhand from the tray icon when you are done.
 
@@ -44,8 +67,8 @@ A game window only answers its pad while that window is in front, like the keybo
 launcher can change.
 
 ## What it does not do
-No game memory is read or written. No keystrokes are sent. It plays nothing for you: it forwards **your own** button presses.
-No passwords are stored. It does not automate anything.
+Offhand does not read or write game memory. Controller forwarding uses **your own** button presses.
+Optional PlayOnline sign-in sends input through a path you teach and stores passwords locally in Windows Credential Manager; see [SIGN-IN.md](SIGN-IN.md). It does not automate gameplay.
 
 ## The honest risk
 Square Enix's rules say third-party programs are not allowed, and Windower itself is one. Many players use Windower for years
@@ -54,9 +77,19 @@ the game, but that is no guarantee either. **Use it at your own risk and decide 
 to automate play.
 
 ## Status
-Version 0.8.0 (reliability candidate). Tested with two Xbox Wireless Controllers and two clients: right pad per window, live swap, sleep and reconnect,
-and Steam seeing the pads again after Exit. It is a one-person project; expect rough edges and please send reports (include
-`launcher.log` from `%APPDATA%\ffxi-pad-launcher`; it contains pad addresses but no passwords).
+Version 0.14.4 preview includes the conventional Windows installer. The source and installer compile;
+installer lifecycle testing (fresh install, upgrade and uninstall) remains pending. Packages are unsigned.
+Earlier builds were tested with two Xbox Wireless Controllers and two clients. Expect rough edges.
+Use **Save diagnostics** to preview a redacted report before sharing it; do not publish raw logs,
+settings or taught sign-in files.
 
 ## Credits
 Built on ViGEmBus and HidHide by Nefarius, and the ViGEm client and Vortice libraries.
+
+## Optional PlayOnline sign-in
+
+Sign in from Offhand after teaching your own PlayOnline path. Passwords are stored locally in Windows Credential Manager. See [Optional PlayOnline sign-in](SIGN-IN.md) for setup, what is saved, and manual fallback.
+
+## Windows installer
+
+Choose `Offhand-<version>-Setup.exe` for desktop/Start shortcuts and Windows uninstall support, or keep using the portable ZIP. Close game/POL windows and Exit Offhand before upgrading; reopen it from the new shortcut afterward. Settings and saved sign-in information are retained. Drivers remain separate, guided by Setup. See INSTALL.txt for installation and INSTALLER-BUILD.md in the source repository for packaging/signing. Unsigned preview packages still show Unknown publisher.

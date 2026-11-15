@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <!-- Offhand (called Pad Launcher until 0.7.0): one controller per game client (IDEAS #38). -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -11,7 +11,7 @@
     <RuntimeIdentifier>win-x86</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Offhand</AssemblyName>
-    <Version>0.12.0</Version>
+    <Version>0.14.4</Version>
     <!-- No debug path or commit id inside the shipped exe (the PDB path would carry the build machine's folders). -->
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>

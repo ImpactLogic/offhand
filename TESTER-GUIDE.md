@@ -29,8 +29,7 @@ Type a note for it ("white, tape on back").
 - Anything confusing in the screens or messages? Anything that scared you?
 
 ## When something goes wrong
-Press **Save diagnostics**. It puts one zip on your desktop (version, Windows, drivers, pads, the log, settings: pad addresses and your
-notes, no passwords). Send me that file plus the feedback below.
+Choose **Save diagnostics** and review the preview before saving the ZIP. The report contains version, driver status, basic settings and recent logs with known identifiers redacted. Passwords, sign-in recordings and the raw configuration are excluded. Review any remaining log details before sharing.
 
 Emergency: if your pads seem to have vanished after a crash, start Offhand once (it repairs itself) or run
 `"C:\Program Files\Nefarius Software Solutions\HidHide\x64\HidHideCLI.exe" --cloak-off`.

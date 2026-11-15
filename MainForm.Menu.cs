@@ -1,4 +1,4 @@
-ï»¿namespace PadLauncher;
+namespace PadLauncher;
 
 /// The Windows-style menu bar (0.11.0). Every item calls something the window already did with a button; the buttons that used to sit
 /// under "More" are gone from the window, so the menu is now the one place for them. Shortcuts follow Windows convention.
@@ -24,7 +24,8 @@ public partial class MainForm
         static void Sep(ToolStripMenuItem parent) => parent.DropDownItems.Add(new ToolStripSeparator());
 
         var file = Top("&File");
-        Item(file, "&Launch all", () => { if (launchBtn.Enabled) _ = LaunchAll(); }, Keys.Control | Keys.L);
+        var launchItem = Item(file, "&Launch all", () => { if (launchBtn.Enabled) _ = LaunchAll(); }, Keys.Control | Keys.L);
+        file.DropDown.Opening += (_, _) => { UpdateGuide(); launchItem.Enabled = launchBtn.Enabled; };
         Sep(file);
         Item(file, "&Save now", () => { SaveRows(); Log("Saved " + Config.FilePath); }, Keys.Control | Keys.S);
         Item(file, "&Export characters...", ExportCharacters, Keys.Control | Keys.E);
@@ -42,7 +43,7 @@ public partial class MainForm
         Item(chars, "Move &down", () => { if (!SessionActive) MoveRow(1); }, Keys.Alt | Keys.Down);
         Sep(chars);
         Item(chars, "Make the &other character the main...", SwitchMain);
-        Check(chars, "&Quality profiles (full / lite)", () => morePanel.Visible, () => morePanel.Visible = !morePanel.Visible);
+        Check(chars, "&Quality profiles (full / lite)", () => morePanel.Visible, () => { NavigateTo("Characters"); morePanel.Visible = !morePanel.Visible; });
 
         var ctl = Top("Con&trollers");
         Item(ctl, "&Refresh controllers", () => { Pads.InvalidatePathCache(); RefreshPads(); }, Keys.F5);
@@ -52,12 +53,18 @@ public partial class MainForm
         Item(ctl, "Set FFXI controller to selected &row (simple mode)", SetSelected);
 
         var view = Top("&View");
-        Check(view, "&Controller list", () => padsToggle || padsPanel.Visible, () => { padsToggle = !padsToggle; UpdateGuide(); });
-        Check(view, "&Log", () => detailsPanel.Visible, () => detailsPanel.Visible = !detailsPanel.Visible);
+        Check(view, "&Controller list", () => padsToggle || padsPanel.Visible, () => NavigateTo("Controllers"));
+        Check(view, "&Log", () => detailsPanel.Visible, () => NavigateTo("Activity"));
         Check(view, "&Technical columns", () => advBox.Checked, () => advBox.Checked = !advBox.Checked);
 
         var tools = Top("&Tools");
         Item(tools, "&Setup...", ShowSetup, Keys.Control | Keys.Oemcomma);
+        Item(tools, "POL &input diagnostic...", () =>
+        {
+            using var dialog = new PrivatePolInputForm(PrivateTrackedPids, Log);
+            dialog.ShowDialog(this);
+        });
+        Item(tools, "PlayOnline &sign-in settings...", ShowPrivateLoginSettings);
         Check(tools, "Write &status file for Claude", () => cfg.ClaudeStatusFile, ToggleStatusFile);
 
         var help = Top("&Help");
@@ -73,13 +80,37 @@ public partial class MainForm
         Controls.Add(menu);
     }
 
+    void ShowPrivateLoginSettings()
+    {
+        using var dialog = new PrivateLoginForm(cfg.Rows.Select(r => r.Label));
+        dialog.ShowDialog(this);
+    }
+
     void SaveDiagnostics()
     {
         try
         {
-            var zip = Diagnostics.Save(cfg);
-            Log("Diagnostics saved: " + zip);
-            MessageBox.Show(this, "Saved to your desktop:\n" + zip + "\n\nSend that one file with your report. It holds pad addresses, your notes and the Windower path, no passwords.", "Save diagnostics");
+            var report = Diagnostics.Preview(cfg);
+            using var preview = new Form { Text = "Preview diagnostics", StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(700, 475), MinimizeBox = false, ShowInTaskbar = false };
+            var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, WordWrap = false,
+                ScrollBars = ScrollBars.Both, Text = string.Join("\r\n\r\n", report.Select(entry => $"--- {entry.Key} ---\r\n{entry.Value}")) };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true };
+            var save = new Button { Text = "Save ZIP…", DialogResult = DialogResult.OK, AutoSize = true };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            buttons.Controls.AddRange(new Control[] { save, cancel });
+            preview.Controls.Add(text);
+            preview.Controls.Add(buttons);
+            preview.Controls.Add(new Label { Dock = DockStyle.Top, Height = 42,
+                Text = "Review what will be saved. Known identifiers are redacted. Passwords and sign-in recordings are excluded." });
+            preview.CancelButton = cancel;
+            if (preview.ShowDialog(this) != DialogResult.OK) return;
+            using var destination = new SaveFileDialog { Filter = "ZIP archive|*.zip",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                FileName = $"Offhand-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip" };
+            if (destination.ShowDialog(this) != DialogResult.OK) return;
+            Diagnostics.SaveReport(destination.FileName, report);
+            Log("Diagnostics saved: " + destination.FileName);
         }
         catch (Exception e) { MessageBox.Show(this, "Could not save: " + e.Message, "Save diagnostics"); }
     }

@@ -48,6 +48,9 @@ public sealed class RawPads : IDisposable
     readonly ConcurrentDictionary<IntPtr, Dev?> devices = new();           // raw device handle -> pad (null = not a pad we track)
     readonly ConcurrentDictionary<string, PadState> state = new();         // address -> latest decoded state
     readonly ConcurrentDictionary<string, long> lastTick = new();
+    sealed record Connection(int Number, long Seen, long? FirstReport, bool ArrivalObserved);
+    readonly ConcurrentDictionary<string, Connection> connections = new();
+    readonly long started = Environment.TickCount64;
     readonly WndProc proc;
     readonly Thread thread;
     readonly ManualResetEventSlim ready = new();
@@ -65,9 +68,25 @@ public sealed class RawPads : IDisposable
         ready.Wait(3000);
     }
 
-    readonly ConcurrentDictionary<IntPtr, bool> arrived = new();
+    readonly ConcurrentDictionary<IntPtr, long> arrived = new();
     public bool Ok => hwnd != IntPtr.Zero;
     public bool TryGet(string address, out PadState s) => state.TryGetValue(address, out s);
+    public string Evidence(string address, long now)
+    {
+        string report = lastTick.TryGetValue(address, out var tick) ? $"{Math.Max(0, now - tick)}ms" : "none";
+        var timing = connections.TryGetValue(address, out var connection)
+            ? $",reconnects={connection.Number - 1},first-report={(connection.FirstReport is long first ? $"{first - connection.Seen}ms" : "pending")}"
+            : "";
+        return $"raw-device={Knows(address)},raw-last={report}{timing}";
+    }
+
+    void ConnectionEvent(string address, Connection connection, string phase)
+    {
+        var elapsed = Environment.TickCount64 - started;
+        var first = connection.FirstReport is long tick ? $"{tick - connection.Seen}ms" : "pending";
+        var reference = connection.ArrivalObserved ? "raw-arrival" : "raw-discovery";
+        Watchdog.ControllerEvent($"device={address} phase={phase} reconnects={connection.Number - 1} forwarding-age={elapsed}ms first-report={first} timing-from={reference}");
+    }
     public void Forget(string address) => state.TryRemove(address, out _);
 
     void Loop()
@@ -135,12 +154,21 @@ public sealed class RawPads : IDisposable
             if (msg == WM_USER + 1) { DestroyWindow(h); hwnd = IntPtr.Zero; PostQuitMessage(0); return IntPtr.Zero; }
             if (msg == WM_INPUT) OnInput(lParam);
             else if (msg == WM_USER) { Register(); Enumerate(); }
-            else if (msg == WM_INPUT_DEVICE_CHANGE && wParam.ToInt32() == 1 /* GIDC_ARRIVAL */) { if (arrived.TryAdd(lParam, true)) { Pads.InvalidatePathCache(); Log?.Invoke("RAW a game controller arrived"); } }
+            else if (msg == WM_INPUT_DEVICE_CHANGE && wParam.ToInt32() == 1 /* GIDC_ARRIVAL */) { if (arrived.TryAdd(lParam, Environment.TickCount64)) { Pads.InvalidatePathCache(); Log?.Invoke("RAW a game controller arrived"); } }
             else if (msg == WM_INPUT_DEVICE_CHANGE && wParam.ToInt32() == 2 /* GIDC_REMOVAL */)
             {
                 arrived.TryRemove(lParam, out _);
                 Pads.InvalidatePathCache();
-                if (devices.TryRemove(lParam, out var d) && d != null) { state.TryRemove(d.Address, out _); Marshal.FreeHGlobal(d.Preparsed); }
+                if (devices.TryRemove(lParam, out var d) && d != null)
+                {
+                    if (!Knows(d.Address))
+                    {
+                        state.TryRemove(d.Address, out _);
+                        lastTick.TryRemove(d.Address, out _);
+                        if (connections.TryGetValue(d.Address, out var connection)) ConnectionEvent(d.Address, connection, "removed");
+                    }
+                    Marshal.FreeHGlobal(d.Preparsed);
+                }
             }
         }
         catch (Exception e) { Log?.Invoke("RAW error: " + e.Message); }
@@ -174,7 +202,19 @@ public sealed class RawPads : IDisposable
             finally { Marshal.FreeHGlobal(buf); }
         }
         else return null;  // lookup failed (device hidden or gone): try again next time, never remember a failure
-        if (d != null) devices[dev] = d;
+        if (d != null)
+        {
+            bool wasKnown = Knows(d.Address);
+            devices[dev] = d;
+            if (!wasKnown && (connections.Count < 64 || connections.ContainsKey(d.Address)))
+            {
+                bool hasArrival = arrived.TryGetValue(dev, out var arrival);
+                int number = connections.TryGetValue(d.Address, out var prior) ? prior.Number + 1 : 1;
+                var connection = new Connection(number, hasArrival ? arrival : Environment.TickCount64, null, hasArrival);
+                connections[d.Address] = connection;
+                ConnectionEvent(d.Address, connection, "discovered");
+            }
+        }
         else if (notPad) devices[dev] = null;  // a device that is simply not a Bluetooth pad; anything else may succeed later
         return d;
     }
@@ -211,7 +251,14 @@ public sealed class RawPads : IDisposable
                 Marshal.Copy(buf + (int)hdr + 8 + (int)(i * sizeHid), report, 0, (int)sizeHid);
                 var s = Decode(d.Preparsed, report, Trace != null || Verbose, out var dump);
                 state[d.Address] = s;
-                lastTick[d.Address] = Environment.TickCount64;
+                long now = Environment.TickCount64;
+                lastTick[d.Address] = now;
+                if (connections.TryGetValue(d.Address, out var connection) && connection.FirstReport == null)
+                {
+                    connection = connection with { FirstReport = now };
+                    connections[d.Address] = connection;
+                    ConnectionEvent(d.Address, connection, "first-report");
+                }
                 Trace?.Invoke(d.Address, dump + " -> " + s);
             }
         }

@@ -1,0 +1,9 @@
+Offhand Setup
+
+Close your game and PlayOnline windows, then choose Exit from Offhand's tray icon before installing or upgrading. Do the same before uninstalling.
+
+Setup installs Offhand, creates desktop and Start menu shortcuts, and adds an entry to Windows Installed apps. Open Offhand from its new shortcut after setup finishes.
+
+Your existing settings and saved sign-in information are kept during upgrades and uninstall. A previous portable copy is left in place; use the new shortcut after installing.
+
+Offhand includes its .NET runtime. Windower, FFXI, ViGEmBus and HidHide are not bundled or installed automatically. Offhand's setup wizard checks your configuration and provides the driver links.

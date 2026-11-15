@@ -117,6 +117,20 @@ public sealed class DiSource : IPadSource, IDisposable
     readonly IDirectInput8 listDi = DInput.DirectInput8Create();   // refresh task only: lists pads. A COM object is never used from two threads (heap corruption crash 2026-10-06 02:00)
     readonly object listLock = new();
     bool disposed;
+    readonly OperationTrace inputTrace = Watchdog.Track("physical-input");
+    readonly OperationTrace refreshTrace = Watchdog.Track("controller-refresh");
+    readonly Dictionary<string, string> inputModes = new();
+    void Mode(string address, string mode, Guid guid = default)
+    {
+        if (inputModes.TryGetValue(address, out var previous) && previous == mode) return;
+        inputModes[address] = mode;
+        Watchdog.Note("source:" + address + ":" + mode, $"source device={address} guid={guid:B} mode={mode}");
+    }
+    void Native(string phase, string context, Action call)
+    {
+        inputTrace.Begin(phase, context);
+        try { call(); } finally { inputTrace.End(); }
+    }
     readonly Dictionary<string, (Guid Guid, IDirectInputDevice8 Dev)> open = new();
     volatile Dictionary<string, Guid> known = new();
     readonly HashSet<Guid> ignore;
@@ -128,45 +142,66 @@ public sealed class DiSource : IPadSource, IDisposable
 
     public IReadOnlyDictionary<string, Guid> Known => known;
     public bool RawKnows(string address) => raw.Knows(address);
+    public string InputEvidence(string address, long now) => raw.Evidence(address, now) + $",directinput-listed={known.ContainsKey(address)}";
     public void RawRescan() => raw.Reregister();
 
     public void Refresh()
     {
-        raw.Reregister();
-        var map = new Dictionary<string, Guid>();
-        lock (listLock) { if (disposed) return; foreach (var p in Pads.ListWith(listDi).Where(p => !ignore.Contains(p.Guid))) map.TryAdd(p.Address, p.Guid); }
-        known = map;
+        refreshTrace.Begin("RawInput.Reregister");
+        try
+        {
+            raw.Reregister();
+            var map = new Dictionary<string, Guid>();
+            refreshTrace.Begin("enumeration lock / DirectInput list");
+            lock (listLock) { if (disposed) return; foreach (var p in Pads.ListWith(listDi).Where(p => !ignore.Contains(p.Guid))) map.TryAdd(p.Address, p.Guid); }
+            known = map;
+        }
+        finally { refreshTrace.End(); }
     }
 
     public PadState? Read(string address)
     {
         var map = known;
-        if (!map.TryGetValue(address, out var guid)) { Drop(address); raw.Forget(address); return null; }
+        if (!map.TryGetValue(address, out var guid)) { Mode(address, "not-enumerated"); Drop(address); raw.Forget(address); return null; }
         if (raw.Ok && raw.TryGet(address, out var rs))
         {
+            Mode(address, "raw-input", guid);
             var rd = Dead(rs);
             if (!rd.IsNeutral && seenInput.Add(address)) Log?.Invoke($"FORWARD first input from {address} (raw input, works in the background): {rd}");
             return rd;
         }
+        Mode(address, raw.Ok ? "directinput-fallback:no-raw-state" : "directinput-fallback:raw-window-unavailable", guid);
         try
         {
             if (open.TryGetValue(address, out var o) && o.Guid != guid) Drop(address);  // same pad, new GUID: reopen
             if (!open.TryGetValue(address, out o))
             {
-                var dev = di.CreateDevice(guid);
-                dev.SetCooperativeLevel(hwnd, CooperativeLevel.Background | CooperativeLevel.NonExclusive);
-                dev.SetDataFormat<RawJoystickState>();
-                dev.Acquire();
+                var context = $"device={address} guid={guid:B} rawKnown={raw.Knows(address)} rawWindow={raw.Ok}";
+                Watchdog.Note("open:" + address, "DirectInput open begin " + context);
+                inputTrace.Begin("DirectInput.CreateDevice", context);
+                IDirectInputDevice8 dev;
+                try { dev = di.CreateDevice(guid); } finally { inputTrace.End(); }
+                Native("DirectInput.SetCooperativeLevel", context, () => dev.SetCooperativeLevel(hwnd, CooperativeLevel.Background | CooperativeLevel.NonExclusive));
+                Native("DirectInput.SetDataFormat", context, () => dev.SetDataFormat<RawJoystickState>());
+                Native("DirectInput.Acquire", context, () => dev.Acquire());
+                Watchdog.Note("opened:" + address, "DirectInput open completed " + context);
                 Log?.Invoke($"FORWARD reading {address} through DirectInput {guid:B}");
                 open[address] = o = (guid, dev);
             }
-            o.Dev.Poll();
-            var s = o.Dev.GetCurrentJoystickState();
+            inputTrace.Begin("DirectInput.Poll", address);
+            try { o.Dev.Poll(); } finally { inputTrace.End(); }
+            inputTrace.Begin("DirectInput.GetCurrentJoystickState", address);
+            JoystickState s;
+            try { s = o.Dev.GetCurrentJoystickState(); } finally { inputTrace.End(); }
             var st = Dead(DiMap.FromDirectInput(s.X, s.Y, s.Z, s.RotationX, s.RotationY, s.PointOfViewControllers[0], s.Buttons));
             if (!st.IsNeutral && seenInput.Add(address)) Log?.Invoke($"FORWARD first input from {address}: {st}");  // proof that DirectInput delivers in the background
             return st;
         }
-        catch { Drop(address); return null; }  // input lost: the router sends neutral
+        catch (Exception e)
+        {
+            Watchdog.Note("input-error:" + address, $"DirectInput failure device={address} guid={guid:B} error={e.GetType().Name} hresult=0x{e.HResult:X8}; router will receive unavailable input");
+            Drop(address); return null;
+        }  // input lost: the router sends neutral
     }
 
     /// Idle stick drift (a few hundred units) is not input: keep it from reaching the game and from the first-input log.
@@ -176,7 +211,7 @@ public sealed class DiSource : IPadSource, IDisposable
 
     void Drop(string address)
     {
-        if (open.Remove(address, out var o)) { try { o.Dev.Dispose(); } catch { } }
+        if (open.Remove(address, out var o)) { inputTrace.Begin("DirectInput.Dispose", address); try { o.Dev.Dispose(); } catch { } finally { inputTrace.End(); } }
     }
 
     public void Dispose() { raw.Dispose(); foreach (var a in open.Keys.ToList()) Drop(a); di.Dispose(); lock (listLock) { disposed = true; listDi.Dispose(); } }
@@ -203,6 +238,14 @@ public sealed class Forwarder : IDisposable
     [DllImport("winmm.dll")] static extern uint timeEndPeriod(uint ms);
 
     readonly object gate = new();
+    readonly OperationTrace routingTrace = Watchdog.Track("forwarder-routing");
+    readonly OperationTrace uiTrace = Watchdog.Track("routing-ui-access");
+    sealed record CachedStats(long Ticks, double MaxMs, long Updated);
+    CachedStats cachedStats = new(0, 0, Environment.TickCount64);
+    public string DiagnosticStatus
+    {
+        get { var value = Volatile.Read(ref cachedStats); return $"forwarding {value.Ticks} passes, longest {value.MaxMs:F1} ms; stats-age={Environment.TickCount64 - value.Updated} ms"; }
+    }
     readonly VirtualPads virtualPads;
     readonly DiSource source;
     readonly Router router;
@@ -226,6 +269,8 @@ public sealed class Forwarder : IDisposable
         // that is the pad the game ends up reading for that GUID (see VirtualPads.EnumOrder).
         slotPads = virtualPads.Pads.OrderBy(p => p.XInputSlot < 0 ? int.MaxValue : p.XInputSlot).ToList();
         for (int i = 0; i < addresses.Count; i++) router.AddSlot($"slot {i + 1}", new LoggedPad(slotPads[i], $"slot {i + 1}", log), string.IsNullOrEmpty(addresses[i]) ? null : addresses[i]);
+        initialVirtualSlots = slotPads.Select(p => p.XInputSlot).ToArray();
+        assignedAddresses = router.Slots.Select(slot => slot.Address).ToArray();
         source.Refresh();
         thread = new Thread(Loop) { IsBackground = true, Name = "pad-forwarder", Priority = ThreadPriority.AboveNormal };
         thread.Start();
@@ -235,9 +280,28 @@ public sealed class Forwarder : IDisposable
 
     public int Count => router.Slots.Count;
     readonly List<ViGemPad> slotPads;
+    readonly int[] initialVirtualSlots;
+    string?[] assignedAddresses;
+    public string ControllerSnapshot()
+    {
+        var addresses = Volatile.Read(ref assignedAddresses);
+        var devices = ControllerEvidence.PresentDevices();
+        var now = Environment.TickCount64;
+        var pads = addresses.Select((address, slot) => address == null ? $"pad{slot + 1}:unassigned"
+            : $"pad{slot + 1}:pnp({ControllerEvidence.BluetoothPresence(devices, address)}),{source.InputEvidence(address, now)}");
+        return string.Join("; ", pads) + "; xinput=" + ControllerEvidence.XInputSlots()
+            + "; virtual-slots-at-start=" + string.Join(",", initialVirtualSlots);
+    }
+
+    void CacheAssignments() => Volatile.Write(ref assignedAddresses, router.Slots.Select(slot => slot.Address).ToArray());
     public Guid VirtualGuid(int slot) => slot < virtualPads.EnumOrder.Count ? virtualPads.EnumOrder[slot] : slotPads[slot].DiGuid;
     public int XInputSlot(int slot) => slotPads[slot].XInputSlot;
-    public string? AddressOf(int slot) { lock (gate) return router.Slots[slot].Address; }
+    public string? AddressOf(int slot)
+    {
+        uiTrace.Begin("AddressOf waiting for routing lock");
+        try { lock (gate) return router.Slots[slot].Address; }
+        finally { uiTrace.End(); }
+    }
     public IReadOnlyDictionary<string, Guid> Connected => source.Known;
     /// The background reader has looked this pad up (so it can be hidden from games without losing its input).
     public bool RawKnows(string address) => source.RawKnows(address);
@@ -246,13 +310,13 @@ public sealed class Forwarder : IDisposable
     /// Bind a physical pad (by address) to slot i; null empties the slot. A pad that another slot has moves.
     public void Assign(int slot, string? address)
     {
-        lock (gate) router.Assign(router.Slots[slot], string.IsNullOrEmpty(address) ? null : address);
+        lock (gate) { router.Assign(router.Slots[slot], string.IsNullOrEmpty(address) ? null : address); CacheAssignments(); }
         log($"FORWARD slot {slot + 1} <- {(string.IsNullOrEmpty(address) ? "(none)" : address)}");
     }
 
     public void Swap(int a, int b)
     {
-        lock (gate) router.Swap(router.Slots[a], router.Slots[b]);
+        lock (gate) { router.Swap(router.Slots[a], router.Slots[b]); CacheAssignments(); }
         log($"FORWARD swapped slot {a + 1} and slot {b + 1}");
     }
 
@@ -272,9 +336,15 @@ public sealed class Forwarder : IDisposable
                     refreshing = Task.Run(() => { try { source.Refresh(); } catch { } });
                 }
                 t.Restart();
-                lock (gate) { try { router.Tick(); } catch (Exception e) { log("FORWARD error: " + e.Message); } }
+                routingTrace.Begin("routing lock / Router.Tick");
+                try { lock (gate) { try { router.Tick(); } catch (Exception e) { log("FORWARD error: " + e.Message); } } }
+                finally { routingTrace.End(); }
                 var ms = t.Elapsed.TotalMilliseconds;
-                lock (gate) { ticks++; sumMs += ms; if (ms > maxMs) maxMs = ms; }
+                lock (gate)
+                {
+                    ticks++; sumMs += ms; if (ms > maxMs) maxMs = ms;
+                    if (Environment.TickCount64 - cachedStats.Updated >= 1000) Volatile.Write(ref cachedStats, new(ticks, maxMs, Environment.TickCount64));
+                }
                 Thread.Sleep(1);
             }
         }

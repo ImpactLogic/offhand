@@ -5,9 +5,7 @@ using System.Text;
 
 namespace PadLauncher;
 
-/// "Save diagnostics": one zip a tester can send instead of describing what happened. Contains the version, Windows and driver
-/// status, the connected pads, the last part of launcher.log and the settings file. It holds pad Bluetooth addresses and your notes,
-/// character labels and the Windower path; no passwords or account names are stored by this program.
+/// Read-only diagnostic report assembled from an explicit list of fields.
 public static class Diagnostics
 {
     public static string Version =>
@@ -15,45 +13,60 @@ public static class Diagnostics
 
     public static string AboutText =>
         $"Offhand {Version}\n\nOne controller per game window, with live swapping.\n" +
-        "Reads your pads and presents virtual ones; it never reads or writes game memory, sends keystrokes or automates play.\n\n" +
+        "Routes controllers and offers optional PlayOnline sign-in. Sign-in sends input to the PlayOnline window.\n\n" +
         "Square Enix's rules do not allow third-party programs (Windower is one). Use it at your own risk.\n\n" +
         "Built on ViGEmBus and HidHide by Nefarius, the ViGEm client and Vortice libraries.\n" +
         "Settings and log: " + Path.GetDirectoryName(Config.LogPath);
 
-    public static string Save(Config cfg, string? folder = null)
+    public static IReadOnlyDictionary<string, string> Preview(Config cfg)
     {
-        folder ??= Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        var work = Path.Combine(Path.GetTempPath(), "offhand-diag-" + stamp);
-        Directory.CreateDirectory(work);
+        var sb = new StringBuilder();
+        sb.AppendLine($"Offhand {Version}");
+        sb.AppendLine($"Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine($"Windows: {Environment.OSVersion.VersionString}, 64-bit OS: {Environment.Is64BitOperatingSystem}");
+        sb.AppendLine($"Windower.exe found: {File.Exists(cfg.WindowerExe)}");
+        bool vigem = false; try { vigem = VirtualPads.DriverInstalled(); } catch { }
+        sb.AppendLine($"ViGEmBus usable: {vigem}");
+        sb.AppendLine($"HidHide installed: {HidHide.Installed}");
+        try { sb.AppendLine($"HidHide cloak on: {HidHide.CloakOn}"); } catch { }
+        sb.AppendLine($"Forwarding setting: {cfg.UseVirtual}, hide pads setting: {cfg.HidePads}, rows: {cfg.Rows.Count}");
+        sb.AppendLine($"Running now: Offhand x{Process.GetProcessesByName("Offhand").Length}, pol.exe x{Process.GetProcessesByName("pol").Length}, Windower.exe x{Process.GetProcessesByName("Windower").Length}");
+        var names = cfg.Rows.Select(r => r.Label).Concat(cfg.PadNotes.Values)
+            .Concat(new[] { cfg.MainLabel, cfg.WindowerExe, cfg.WindowerArgs });
+        var report = new Dictionary<string, string>
+        {
+            ["info.txt"] = sb.ToString(),
+            ["settings.txt"] = $"Characters: {cfg.Rows.Count}\nVirtual pads: {cfg.UseVirtual}\nHide real pads: {cfg.HidePads}\nVerbose input log: {cfg.VerboseInput}\n"
+        };
+        if (File.Exists(Config.LogPath))
+        {
+            using var file = new FileStream(Config.LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(file);
+            var lines = new Queue<string>();
+            while (reader.ReadLine() is { } line)
+            {
+                lines.Enqueue(line);
+                if (lines.Count > 3000) lines.Dequeue();
+            }
+            report["launcher.log"] = AskClaude.Redact(string.Join(Environment.NewLine, lines), names);
+        }
+        return report;
+    }
+
+    public static void SaveReport(string path, IReadOnlyDictionary<string, string> report)
+    {
+        // Build the archive beside the destination so a failed write leaves any prior ZIP intact.
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            var sb = new StringBuilder();
-            sb.AppendLine($"Offhand {Version}");
-            sb.AppendLine($"Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"Windows: {Environment.OSVersion.VersionString}, 64-bit OS: {Environment.Is64BitOperatingSystem}");
-            sb.AppendLine($"Windower.exe found: {File.Exists(cfg.WindowerExe)} ({cfg.WindowerExe})");
-            bool vigem = false; try { vigem = VirtualPads.DriverInstalled(); } catch { }
-            sb.AppendLine($"ViGEmBus usable: {vigem}");
-            sb.AppendLine($"HidHide installed: {HidHide.Installed}");
-            try { sb.AppendLine($"HidHide cloak on: {HidHide.CloakOn}"); } catch { }
-            sb.AppendLine($"Forwarding setting: {cfg.UseVirtual}, hide pads setting: {cfg.HidePads}, rows: {cfg.Rows.Count}");
-            sb.AppendLine($"Running now: Offhand x{Process.GetProcessesByName("Offhand").Length}, pol.exe x{Process.GetProcessesByName("pol").Length}, Windower.exe x{Process.GetProcessesByName("Windower").Length}");
-            sb.AppendLine("Pads Windows lists:");
-            try { foreach (var p in Pads.List()) sb.AppendLine($"  {p.Name}  [{p.Address}]  {Pads.Format(p.Guid)}  {Pads.Transport(p)}"); }
-            catch (Exception e) { sb.AppendLine("  (could not list: " + e.Message + ")"); }
-            File.WriteAllText(Path.Combine(work, "info.txt"), sb.ToString());
-
-            if (File.Exists(Config.LogPath))
-            {
-                var lines = File.ReadAllLines(Config.LogPath);
-                File.WriteAllLines(Path.Combine(work, "launcher.log"), lines.Length > 3000 ? lines[^3000..] : lines);
-            }
-            if (File.Exists(Config.FilePath)) File.Copy(Config.FilePath, Path.Combine(work, "config.json"));
-            var zip = Path.Combine(folder, $"Offhand-diagnostics-{stamp}.zip");
-            ZipFile.CreateFromDirectory(work, zip);
-            return zip;
+            using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
+                foreach (var (name, text) in report)
+                {
+                    using var entry = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false));
+                    entry.Write(text);
+                }
+            File.Move(temp, path, overwrite: true);
         }
-        finally { try { Directory.Delete(work, true); } catch { } }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 }
